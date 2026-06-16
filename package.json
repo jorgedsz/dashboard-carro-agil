@@ -1,0 +1,15 @@
+{
+  "name": "dashboard-carro-agil",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Dashboard Carro Ágil (Google Sheet + n8n + Meta)",
+  "scripts": {
+    "build": "npm install --prefix server && npm install --prefix client --include=dev && npm run build --prefix client",
+    "start": "node server/index.js",
+    "dev:server": "npm run dev --prefix server",
+    "dev:client": "npm run dev --prefix client"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}
