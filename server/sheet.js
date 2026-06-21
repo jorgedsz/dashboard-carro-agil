@@ -12,7 +12,7 @@ function csvUrl(gid = GID) {
 
 let cache = { at: 0, data: null };
 let tabsCache = { at: 0, tabs: null };
-const TABS_CACHE_MS = 5 * 60 * 1000; // las pestañas casi nunca cambian
+const TABS_CACHE_MS = 60 * 1000; // redescubre pestañas nuevas en ~1 min (force las trae al instante)
 
 function decodeName(raw) {
   // Los nombres vienen escapados dentro del JS del htmlview (á, \x3d, \\, …).
@@ -27,8 +27,8 @@ function decodeName(raw) {
  * Descubre TODAS las pestañas (gid + nombre) leyendo el htmlview público de la hoja.
  * El htmlview incluye un bloque JS con `items.push({name: "...", url: "...gid=N", gid: "N"})`.
  */
-async function discoverTabs() {
-  if (tabsCache.tabs && Date.now() - tabsCache.at < TABS_CACHE_MS) return tabsCache.tabs;
+async function discoverTabs({ force = false } = {}) {
+  if (!force && tabsCache.tabs && Date.now() - tabsCache.at < TABS_CACHE_MS) return tabsCache.tabs;
 
   const resp = await fetchWithRetry(
     `https://docs.google.com/spreadsheets/d/${SHEET_ID}/htmlview`,
@@ -104,7 +104,7 @@ async function fetchSheet({ force = false } = {}) {
   let tabs;
   if (ALL_TABS) {
     try {
-      tabs = await discoverTabs();
+      tabs = await discoverTabs({ force });
     } catch (e) {
       console.warn('[sheet] no se pudieron descubrir las pestañas, uso solo SHEET_GID:', e.message);
       tabs = [{ name: '', gid: GID }];
