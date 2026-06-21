@@ -245,6 +245,20 @@ body {
 }
 .filters { display: flex; gap: 10px; flex-wrap: wrap; }
 
+/* ─── Paginación ─── */
+.pagination {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-top: 14px;
+}
+.pager { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.page-size { display: flex; align-items: center; gap: 6px; }
+.page-size .input { padding: 6px 10px; font-size: 13px; }
+.page-info { white-space: nowrap; padding: 0 4px; }
+
 /* ─── Chips ─── */
 .chips { display: flex; flex-wrap: wrap; gap: 9px; }
 .chip {

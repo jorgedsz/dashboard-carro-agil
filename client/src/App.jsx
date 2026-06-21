@@ -91,6 +91,8 @@ export default function App() {
 
   const [search, setSearch] = useState('')
   const [statusFilter, setStatusFilter] = useState('')
+  const [page, setPage] = useState(1)
+  const [pageSize, setPageSize] = useState(25)
 
   const [adImages, setAdImages] = useState({})
   const [metaEnabled, setMetaEnabled] = useState(null)
@@ -362,6 +364,19 @@ export default function App() {
       )
     })
   }, [leads, search, statusFilter, statusKey])
+
+  // Paginación de la tabla de leads.
+  const totalPages = Math.max(1, Math.ceil(filteredLeads.length / pageSize))
+  const pageClamped = Math.min(page, totalPages)
+  const pagedLeads = useMemo(
+    () => filteredLeads.slice((pageClamped - 1) * pageSize, pageClamped * pageSize),
+    [filteredLeads, pageClamped, pageSize]
+  )
+
+  // Al cambiar búsqueda, filtro o tamaño de página, vuelve a la primera página.
+  useEffect(() => {
+    setPage(1)
+  }, [search, statusFilter, pageSize])
 
   if (loading) {
     return (
@@ -708,7 +723,7 @@ export default function App() {
                   </tr>
                 </thead>
                 <tbody>
-                  {filteredLeads.map((lead, i) => {
+                  {pagedLeads.map((lead, i) => {
                     const status = String(lead[statusKey] ?? '').trim()
                     const conv = converted.has(status)
                     const leadId = String(lead[COL.leadId] ?? '').trim()
@@ -751,9 +766,65 @@ export default function App() {
                 </tbody>
               </table>
             </div>
-            <p className="muted small">
-              Mostrando {filteredLeads.length} de {leads.length} leads
-            </p>
+            <div className="pagination">
+              <span className="muted small">
+                {filteredLeads.length === 0
+                  ? 'Sin resultados'
+                  : `Mostrando ${(pageClamped - 1) * pageSize + 1}–${Math.min(
+                      pageClamped * pageSize,
+                      filteredLeads.length
+                    )} de ${filteredLeads.length}`}
+                {filteredLeads.length !== leads.length ? ` (filtrados de ${leads.length})` : ''}
+              </span>
+              <div className="pager">
+                <label className="muted small page-size">
+                  Por página:
+                  <select
+                    className="input"
+                    value={pageSize}
+                    onChange={(e) => setPageSize(Number(e.target.value))}
+                  >
+                    <option value={10}>10</option>
+                    <option value={25}>25</option>
+                    <option value={50}>50</option>
+                    <option value={100}>100</option>
+                  </select>
+                </label>
+                <button
+                  className="btn btn-sm"
+                  onClick={() => setPage(1)}
+                  disabled={pageClamped <= 1}
+                  title="Primera página"
+                >
+                  «
+                </button>
+                <button
+                  className="btn btn-sm"
+                  onClick={() => setPage((p) => Math.max(1, p - 1))}
+                  disabled={pageClamped <= 1}
+                >
+                  ‹ Anterior
+                </button>
+                <span className="muted small page-info">
+                  Página {pageClamped} de {totalPages}
+                </span>
+                <button
+                  className="btn btn-sm"
+                  onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+                  disabled={pageClamped >= totalPages}
+                >
+                  Siguiente ›
+                </button>
+                <button
+                  className="btn btn-sm"
+                  onClick={() => setPage(totalPages)}
+                  disabled={pageClamped >= totalPages}
+                  title="Última página"
+                >
+                  »
+                </button>
+              </div>
+            </div>
           </section>
         </>
       )}
