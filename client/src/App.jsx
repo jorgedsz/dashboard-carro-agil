@@ -15,6 +15,7 @@ import {
 
 // Nombres de columna tal como vienen en la Google Sheet.
 const COL = {
+  leadId: 'LEAD_ID',
   adsetName: 'ADSET_NAME',
   adId: 'AD_ID',
   adName: 'AD_NAME',
@@ -47,6 +48,38 @@ function pct(part, total) {
   return Math.round((part / total) * 1000) / 10
 }
 
+// Input editable de "ganancia neta" por lead. Confirma al salir (blur) o con Enter.
+function ProfitInput({ value, disabled, title, onSave }) {
+  const [v, setV] = useState(value ?? '')
+  useEffect(() => {
+    setV(value ?? '')
+  }, [value])
+
+  const commit = () => {
+    const norm = v === '' ? '' : String(Number(v))
+    const prev = value == null ? '' : String(value)
+    if (norm !== prev) onSave(v)
+  }
+
+  return (
+    <input
+      className="input profit-input"
+      type="number"
+      inputMode="decimal"
+      step="0.01"
+      disabled={disabled}
+      title={title}
+      placeholder={disabled ? '—' : '0'}
+      value={v}
+      onChange={(e) => setV(e.target.value)}
+      onBlur={commit}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter') e.currentTarget.blur()
+      }}
+    />
+  )
+}
+
 export default function App() {
   const [data, setData] = useState(null)
   const [loading, setLoading] = useState(true)
@@ -65,6 +98,10 @@ export default function App() {
   const [adInsights, setAdInsights] = useState({})
   const [datePreset, setDatePreset] = useState('maximum')
 
+  // Ganancia neta por lead: { [LEAD_ID]: number|null }. Persiste en el backend (Postgres).
+  const [profits, setProfits] = useState({})
+  const [profitEnabled, setProfitEnabled] = useState(null)
+
   async function load(refresh = false) {
     try {
       refresh ? setRefreshing(true) : setLoading(true)
@@ -73,11 +110,40 @@ export default function App() {
       const json = await res.json()
       if (!res.ok) throw new Error(json.error || `Error ${res.status}`)
       setData(json)
+      setProfitEnabled(json.profitEnabled)
+      // Siembra las ganancias guardadas; conserva ediciones locales en curso.
+      const seed = {}
+      for (const l of json.leads || []) {
+        const id = String(l[COL.leadId] ?? '').trim()
+        if (id && l._netProfit != null) seed[id] = Number(l._netProfit)
+      }
+      setProfits((prev) => ({ ...seed, ...prev }))
     } catch (err) {
       setError(err.message)
     } finally {
       setLoading(false)
       setRefreshing(false)
+    }
+  }
+
+  // Guarda la ganancia de un lead (optimista: actualiza UI y persiste en el backend).
+  async function saveProfit(leadId, raw) {
+    const id = String(leadId || '').trim()
+    if (!id) return
+    const val = raw === '' || raw == null ? null : Number(raw)
+    setProfits((prev) => ({ ...prev, [id]: val }))
+    try {
+      const res = await fetch(`/api/profits/${encodeURIComponent(id)}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ netProfit: val }),
+      })
+      if (!res.ok) {
+        const j = await res.json().catch(() => ({}))
+        throw new Error(j.error || `Error ${res.status}`)
+      }
+    } catch (err) {
+      setError(`No se pudo guardar la ganancia: ${err.message}`)
     }
   }
 
@@ -193,16 +259,18 @@ export default function App() {
       const adId = (lead[COL.adId] || '').trim() || '(sin ad id)'
       const key = `${adsetName} - ${adId}`
       if (!map.has(key)) {
-        map.set(key, { key, adsetName, adId, adName: (lead[COL.adName] || '').trim(), total: 0, conv: 0 })
+        map.set(key, { key, adsetName, adId, adName: (lead[COL.adName] || '').trim(), total: 0, conv: 0, profit: 0 })
       }
       const g = map.get(key)
       g.total += 1
       if (isConverted(lead)) g.conv += 1
+      const id = String(lead[COL.leadId] ?? '').trim()
+      if (id && profits[id] != null) g.profit += Number(profits[id])
     }
     return [...map.values()]
       .map((g) => ({ ...g, pct: pct(g.conv, g.total) }))
       .sort((a, b) => b.total - a.total || b.pct - a.pct)
-  }, [leads, converted])
+  }, [leads, converted, profits])
 
   // Agregado por adset (solo ADSET_NAME)
   const byAdset = useMemo(() => {
@@ -255,6 +323,23 @@ export default function App() {
       cpa: totals.conv ? spend / totals.conv : null,
     }
   }, [byAd, adInsights, totals])
+
+  // ─── Ganancia neta (a mano) y ROI vs gasto de Meta ───
+  const profitTotals = useMemo(() => {
+    let profit = 0
+    let count = 0
+    for (const l of leads) {
+      const id = String(l[COL.leadId] ?? '').trim()
+      if (id && profits[id] != null) {
+        profit += Number(profits[id])
+        count += 1
+      }
+    }
+    const spend = metaTotals.spend
+    // ROI = (ganancia neta − gasto) / gasto. Requiere gasto de Meta > 0.
+    const roi = metaTotals.hasData && spend > 0 ? ((profit - spend) / spend) * 100 : null
+    return { profit, count, roi }
+  }, [leads, profits, metaTotals])
 
   // Desglose por estado
   const byStatus = useMemo(() => {
@@ -336,6 +421,17 @@ export default function App() {
               <div className="kpi-body">
                 <span className="kpi-label">% Conversión</span>
                 <span className="kpi-value blue">{totals.pct}%</span>
+              </div>
+            </div>
+            <div className="kpi kpi-4">
+              <div className="kpi-icon">💰</div>
+              <div className="kpi-body">
+                <span className="kpi-label">Ganancia neta</span>
+                <span className="kpi-value green">{fmtMoney(profitTotals.profit)}</span>
+                <span className="kpi-sub muted">
+                  {profitTotals.count} lead{profitTotals.count === 1 ? '' : 's'} con monto
+                  {profitTotals.roi != null ? ` · ROI ${profitTotals.roi.toFixed(0)}%` : ''}
+                </span>
               </div>
             </div>
           </section>
@@ -492,6 +588,12 @@ export default function App() {
                   <span className="mk-label">🏆 Costo por conversión</span>
                   <span className="mk-value">{metaTotals.cpa != null ? fmtMoney(metaTotals.cpa) : '—'}</span>
                 </div>
+                <div className="meta-kpi">
+                  <span className="mk-label">📊 ROI</span>
+                  <span className={`mk-value ${profitTotals.roi != null && profitTotals.roi < 0 ? 'red' : 'green'}`}>
+                    {profitTotals.roi != null ? `${profitTotals.roi.toFixed(0)}%` : '—'}
+                  </span>
+                </div>
               </div>
             )}
             <div className="table-wrap">
@@ -507,6 +609,8 @@ export default function App() {
                     <th className="num">Gasto</th>
                     <th className="num">CPL</th>
                     <th className="num">$/conv.</th>
+                    <th className="num">Ganancia</th>
+                    <th className="num">ROI</th>
                     <th className="num">CTR</th>
                     <th className="num">CPC</th>
                   </tr>
@@ -518,6 +622,7 @@ export default function App() {
                     const spend = ins?.spend || 0
                     const cpl = ins?.hasData && g.total ? spend / g.total : null
                     const cpa = ins?.hasData && g.conv ? spend / g.conv : null
+                    const roi = ins?.hasData && spend > 0 ? ((g.profit - spend) / spend) * 100 : null
                     return (
                     <tr key={g.key}>
                       <td>
@@ -546,6 +651,10 @@ export default function App() {
                       <td className="num">{ins?.hasData ? fmtMoney(spend) : '—'}</td>
                       <td className="num">{cpl != null ? fmtMoney(cpl) : '—'}</td>
                       <td className="num strong">{cpa != null ? fmtMoney(cpa) : '—'}</td>
+                      <td className="num green">{g.profit ? fmtMoney(g.profit) : '—'}</td>
+                      <td className={`num strong ${roi != null && roi < 0 ? 'red' : roi != null ? 'green' : ''}`}>
+                        {roi != null ? `${roi.toFixed(0)}%` : '—'}
+                      </td>
                       <td className="num">{ins?.hasData ? `${ins.ctr.toFixed(2)}%` : '—'}</td>
                       <td className="num">{ins?.hasData ? fmtMoney(ins.cpc) : '—'}</td>
                     </tr>
@@ -553,7 +662,7 @@ export default function App() {
                   })}
                   {byAd.length === 0 && (
                     <tr>
-                      <td colSpan={11} className="muted center">
+                      <td colSpan={13} className="muted center">
                         Sin datos.
                       </td>
                     </tr>
@@ -595,14 +704,17 @@ export default function App() {
                     <th>Adset</th>
                     <th>Anuncio</th>
                     <th>Estado</th>
+                    <th className="num">Ganancia neta</th>
                   </tr>
                 </thead>
                 <tbody>
                   {filteredLeads.map((lead, i) => {
                     const status = String(lead[statusKey] ?? '').trim()
                     const conv = converted.has(status)
+                    const leadId = String(lead[COL.leadId] ?? '').trim()
+                    const noId = !leadId
                     return (
-                      <tr key={i}>
+                      <tr key={leadId || i}>
                         <td className="strong">{lead[COL.name] || '—'}</td>
                         <td>{lead[COL.phone] || '—'}</td>
                         <td className="muted">{lead[COL.email] || '—'}</td>
@@ -612,12 +724,26 @@ export default function App() {
                         <td>
                           <span className={`badge ${conv ? 'badge-green' : 'badge-gray'}`}>{status || '—'}</span>
                         </td>
+                        <td className="num">
+                          <ProfitInput
+                            value={leadId ? profits[leadId] : null}
+                            disabled={profitEnabled === false || noId}
+                            title={
+                              profitEnabled === false
+                                ? 'Configura DATABASE_URL para guardar la ganancia'
+                                : noId
+                                ? 'Este lead no tiene LEAD_ID, no se puede guardar'
+                                : 'Monto neto de ganancia de este lead'
+                            }
+                            onSave={(v) => saveProfit(leadId, v)}
+                          />
+                        </td>
                       </tr>
                     )
                   })}
                   {filteredLeads.length === 0 && (
                     <tr>
-                      <td colSpan={7} className="muted center">
+                      <td colSpan={8} className="muted center">
                         No hay leads que coincidan.
                       </td>
                     </tr>

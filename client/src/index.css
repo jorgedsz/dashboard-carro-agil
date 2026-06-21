@@ -187,6 +187,7 @@ body {
 .kpi-1::before { background: linear-gradient(90deg, var(--indigo), var(--violet)); }
 .kpi-2::before { background: linear-gradient(90deg, var(--green), #10b981); }
 .kpi-3::before { background: linear-gradient(90deg, var(--blue), #38bdf8); }
+.kpi-4::before { background: linear-gradient(90deg, var(--green), #facc15); }
 .kpi-icon {
   width: 52px;
   height: 52px;
@@ -202,6 +203,18 @@ body {
 .kpi-body { display: flex; flex-direction: column; gap: 2px; }
 .kpi-label { color: var(--muted); font-size: 13px; font-weight: 500; }
 .kpi-value { font-size: 32px; font-weight: 800; letter-spacing: -0.02em; line-height: 1.1; }
+.kpi-sub { font-size: 12px; margin-top: 2px; }
+
+/* Input editable de ganancia neta por lead */
+.profit-input {
+  width: 110px;
+  text-align: right;
+  padding: 6px 8px;
+  font-variant-numeric: tabular-nums;
+}
+.profit-input:disabled { opacity: 0.45; cursor: not-allowed; }
+
+.red { color: #f87171; }
 
 /* ─── Cards ─── */
 .card {

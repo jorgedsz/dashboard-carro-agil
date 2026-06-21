@@ -5,6 +5,7 @@ const express = require('express');
 const cors = require('cors');
 const { fetchSheet, csvUrl } = require('./sheet');
 const meta = require('./meta');
+const db = require('./db');
 
 const app = express();
 app.use(cors());
@@ -20,9 +21,42 @@ const PORT = process.env.PORT || 3001;
 app.get('/api/leads', async (req, res) => {
   try {
     const data = await fetchSheet({ force: req.query.refresh === '1' });
-    res.json(data);
+    // Fusiona la ganancia neta guardada (por LEAD_ID) en cada lead.
+    const profits = await db.getProfits().catch((e) => {
+      console.error('[leads] no se pudieron leer las ganancias:', e.message);
+      return {};
+    });
+    const leads = data.leads.map((l) => {
+      const id = String(l.LEAD_ID ?? '').trim();
+      return id && id in profits ? { ...l, _netProfit: profits[id] } : l;
+    });
+    res.json({ ...data, leads, profitEnabled: db.enabled });
   } catch (err) {
     console.error('[leads] error:', err.message);
+    res.status(err.status || 500).json({ error: err.message });
+  }
+});
+
+// ─── Ganancia neta por lead (editable a mano, persistida en Postgres) ──
+
+/** GET /api/profits — { enabled, profits: { [LEAD_ID]: monto } } */
+app.get('/api/profits', async (req, res) => {
+  try {
+    res.json({ enabled: db.enabled, profits: await db.getProfits() });
+  } catch (err) {
+    console.error('[profits] error:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/** PUT /api/profits/:leadId { netProfit } — guarda/actualiza (null o '' borra). */
+app.put('/api/profits/:leadId', async (req, res) => {
+  try {
+    const { netProfit } = req.body || {};
+    const saved = await db.setProfit(req.params.leadId, netProfit);
+    res.json(saved);
+  } catch (err) {
+    console.error('[profits] error:', err.message);
     res.status(err.status || 500).json({ error: err.message });
   }
 });
@@ -76,7 +110,12 @@ if (fs.existsSync(clientDist)) {
   console.log('[static] sirviendo frontend desde client/dist');
 }
 
-app.listen(PORT, () => {
+app.listen(PORT, async () => {
   console.log(`Carro Ágil server escuchando en http://localhost:${PORT}`);
   console.log(`Hoja: ${csvUrl()}`);
+  try {
+    await db.init();
+  } catch (err) {
+    console.error('[db] no se pudo inicializar Postgres:', err.message);
+  }
 });
