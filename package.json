@@ -2,7 +2,7 @@
   "name": "dashboard-carro-agil",
   "version": "1.0.0",
   "private": true,
-  "description": "Dashboard Carro Ágil (Google Sheet + n8n + Meta)",
+  "description": "Dashboard Carro Ágil — solo lectura de una Google Sheet (todas las pestañas) + imágenes Meta",
   "scripts": {
     "build": "npm install --prefix server && npm install --prefix client --include=dev && npm run build --prefix client",
     "start": "node server/index.js",
